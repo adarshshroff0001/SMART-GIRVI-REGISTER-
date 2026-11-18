@@ -644,6 +644,7 @@ function openDetail(id) {
     ['Jwellery', (e.type === 'Sona' ? '🥇 Sona (Gold)' : '🥈 Chandi (Silver)')],
     ['Vajan', esc(e.weight)],
     ['Loan Amount', `<b>${fmtINR(e.loan)}</b>`],
+    ['Vivaran / Note', esc(e.desc || 'Nahi diya')],
     ['Girvi Date', fmtDate(e.date)],
     ['Period', `${e.years} saal`],
     ['Expiry Date', `<b>${fmtDate(e.expiry)}</b>`],
