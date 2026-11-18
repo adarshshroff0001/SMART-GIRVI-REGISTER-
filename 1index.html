@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#7c2d12">
+<title>Smart Girvi Register & Expiry Tracker</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  body { background:#fffbf5; -webkit-tap-highlight-color: transparent; }
+  @keyframes pulseRed {
+    0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.55); }
+    50%     { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+  }
+  .pulse-red { animation: pulseRed 1.6s infinite; }
+  @keyframes pop { from { transform: scale(.94); opacity:0 } to { transform: scale(1); opacity:1 } }
+  .pop { animation: pop .18s ease-out; }
+  .stat-card { transition: transform .15s, box-shadow .15s; cursor:pointer; user-select:none; }
+  .stat-card:active { transform: scale(.97); }
+  tr.row { cursor:pointer; }
+  tr.row:active { background:#fef3c7; }
+</style>
+</head>
+<body class="text-stone-800 min-h-screen">
+
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div id="loginScreen" class="hidden min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-amber-100 via-orange-50 to-amber-200">
+  <div class="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 pop">
+    <div class="text-center mb-5">
+      <div class="text-5xl mb-1">💍</div>
+      <h1 class="text-xl font-extrabold text-amber-900">Smart Girvi Register</h1>
+      <p class="text-xs text-stone-500">& Expiry Tracker</p>
+    </div>
+
+    <form id="loginForm" class="space-y-3" autocomplete="off">
+      <div>
+        <label class="text-xs font-semibold text-stone-600">Dukan ka Naam (fixed)</label>
+        <input id="shopName" type="text" readonly value="Shree Hari Jwellers"
+          class="mt-1 w-full border border-stone-300 bg-amber-50 font-bold text-amber-900 rounded-lg px-3 py-2.5 focus:outline-none">
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-stone-600">Secret PIN / Password</label>
+        <input id="shopPin" type="password" required minlength="4" autocomplete="current-password" placeholder="Apna secret PIN daalein"
+          class="mt-1 w-full border border-stone-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500">
+      </div>
+      <div id="pin2Wrap" class="hidden">
+        <label class="text-xs font-semibold text-stone-600">PIN dobara likhein</label>
+        <input id="shopPin2" type="password" placeholder="PIN confirm karein"
+          class="mt-1 w-full border border-stone-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500">
+      </div>
+      <p class="text-[11px] text-stone-500">💡 Pehli baar: neeche "Pehli baar? PIN set karke account banayein" dabayein. Baad mein sirf PIN daalkar Login.</p>
+      <p id="loginMsg" class="text-sm text-red-600 font-medium hidden"></p>
+      <button id="loginBtn" type="button"
+        class="w-full bg-amber-700 hover:bg-amber-800 text-white font-bold py-3 rounded-lg shadow active:scale-95 transition">
+        🔐 Login
+      </button>
+    </form>
+
+    <div class="mt-4 text-center space-y-2">
+      <button id="toggleModeBtn" type="button" class="text-sm text-amber-800 font-semibold underline">Pehli baar? PIN set karke account banayein</button>
+      <div class="text-xs text-stone-500" id="cloudBadgeLogin"></div>
+      <p id="storageWarn" class="hidden text-xs bg-red-50 border border-red-200 text-red-700 rounded-lg p-2">⚠️ Is preview mein storage band hai — data save nahi rahega. Poore use ke liye file ko Chrome browser mein kholein.</p>
+      <button id="openCfgBtn" type="button" class="text-xs text-stone-500 underline">⚙️ Cloud (Firebase) setup</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== FIREBASE SETUP MODAL ===================== -->
+<div id="cfgModal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl w-full max-w-md p-5 pop max-h-[90vh] overflow-y-auto">
+    <h3 class="font-bold text-lg text-amber-900 mb-1">☁️ Firebase Cloud Setup</h3>
+    <p class="text-xs text-stone-600 mb-2">Firebase Console → Project Settings → Your apps → Web app → <b>firebaseConfig</b> ka object yahan paste karein (JSON ya JS object dono chalega). Ek baar save karne par har naye phone par bhi yahi daalna hoga, ya index.html ke andar <code>FIREBASE_CONFIG</code> mein permanent bhar dein.</p>
+    <textarea id="cfgText" rows="8" class="w-full border border-stone-300 rounded-lg p-2 text-xs font-mono" placeholder='{ apiKey: "...", authDomain: "...", projectId: "...", storageBucket: "...", messagingSenderId: "...", appId: "..." }'></textarea>
+    <p id="cfgMsg" class="text-sm mt-1 hidden"></p>
+    <div class="flex gap-2 mt-3">
+      <button id="cfgSave" class="flex-1 bg-amber-700 text-white font-bold py-2.5 rounded-lg">Save</button>
+      <button id="cfgClear" class="px-3 bg-stone-200 rounded-lg text-sm">Hatayein</button>
+      <button id="cfgClose" class="px-3 bg-stone-200 rounded-lg text-sm">Band</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MAIN APP ===================== -->
+<div id="appScreen" class="hidden">
+  <header class="bg-gradient-to-r from-amber-800 to-orange-700 text-white sticky top-0 z-30 shadow">
+    <div class="max-w-5xl mx-auto px-3 py-2.5 flex items-center justify-between gap-2">
+      <div class="min-w-0">
+        <div class="font-extrabold text-sm sm:text-base truncate">💍 <span id="hdrShop">Dukan</span></div>
+        <div id="syncBadge" class="text-[11px] opacity-90">…</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="addToggleBtn" class="bg-white text-amber-900 font-bold text-sm px-3 py-2 rounded-lg shadow active:scale-95">➕ Nayi Girvi</button>
+        <button id="cfgBtnHdr" title="Cloud setup" class="bg-black/25 text-sm px-3 py-2 rounded-lg active:scale-95">⚙️</button>
+        <button id="backupBtn" title="Backup" class="bg-black/25 text-sm px-3 py-2 rounded-lg active:scale-95">⬇️</button>
+        <button id="logoutBtn" class="hidden bg-black/25 text-sm px-3 py-2 rounded-lg active:scale-95">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-3 py-4 space-y-4">
+    <div id="cloudWarn" class="hidden text-xs bg-red-50 border border-red-200 text-red-700 rounded-lg p-2.5">⚠️ <b>Cloud setup nahi hua</b> — abhi data sirf is phone mein hai. Upar ⚙️ dabakar Firebase config daalein, tabhi dusre phone par data aayega.</div>
+
+    <!-- ADD FORM -->
+    <section id="addPanel" class="hidden bg-white rounded-2xl shadow p-4 pop">
+      <h2 class="font-bold text-amber-900 mb-3">📝 Nayi Girvi Entry</h2>
+      <form id="addForm" class="grid grid-cols-1 sm:grid-cols-2 gap-3" autocomplete="off">
+        <div>
+          <label class="text-xs font-semibold text-stone-600">Customer Name *</label>
+          <input id="fName" required type="text" placeholder="Customer ka naam"
+            class="mt-1 w-full border border-stone-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-stone-600">Diary Code No. * (unique)</label>
+          <input id="fCode" required type="text" placeholder="jaise A-124"
+            class="mt-1 w-full border border-stone-300 rounded-lg px-3 py-2.5 uppercase focus:outline-none focus:ring-2 focus:ring-amber-500">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-stone-600">Mobile Number <span class="text-stone-400">(optional)</span></label>
+          <input id="fMobile" type="tel" inputmode="numeric" placeholder="Number na ho to khali chhodein"
+            class="mt-1 w-full border border-stone-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-stone-600">Jwellery Type *</label>
+          <div class="mt-1 flex gap-2">
+            <label class="flex-1"><input type="radio" name="fType" value="Sona" class="peer hidden" checked>
+              <div class="text-center border-2 border-stone-300 rounded-lg py-2.5 font-semibold peer-checked:border-amber-500 peer-checked:bg-amber-100 peer-checked:text-amber-900">🥇 Sona (Gold)</div></label>
+            <label class="flex-1"><input type="radio" name="fType" value="Chandi" class="peer hidden">
+              <div class="text-center border-2 border-stone-300 rounded-lg py-2.5 font-semibold peer-checked:border-slate-500 peer-checked:bg-slate-100 peer-checked:text-slate-800">🥈 Chandi (Silver)</div></label>
+          </div>
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-stone-600">Weight / Vajan *</label>
+          <input id="fWeight" required type="text" placeholder="jaise 15g ya 2.5ana"
+            class="mt-1 w-full border border-stone-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-stone-600">Loan Amount (₹) *</label>
+          <input id="fLoan" required type="number" min="1" inputmode="numeric" placeholder="10000"
+            class="mt-1 w-full border border-stone-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-stone-600">Girvi Date *</label>
+          <input id="fDate" required type="date"
+            class="mt-1 w-full border border-stone-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-stone-600">Expiry Period *</label>
+          <select id="fYears" class="mt-1 w-full border border-stone-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <option value="1">1 Saal</option><option value="2">2 Saal</option>
+            <option value="3" selected>3 Saal</option><option value="4">4 Saal</option><option value="5">5 Saal</option>
+          </select>
+        </div>
+        <div class="sm:col-span-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm">
+          📅 Expiry Date: <b id="expPreview" class="text-amber-900">—</b>
+        </div>
+        <p id="addMsg" class="sm:col-span-2 text-sm font-medium hidden"></p>
+        <div class="sm:col-span-2 flex gap-2">
+          <button type="button" id="addSaveBtn" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow active:scale-95">✅ Entry Save Karein</button>
+          <button type="button" id="addCancel" class="px-4 bg-stone-200 rounded-lg font-semibold">Band</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- STATS -->
+    <section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="stat-card bg-white rounded-2xl p-3 shadow border-2 border-transparent" data-filter="all">
+        <div class="text-xs font-semibold text-stone-500">📒 Total Active</div>
+        <div id="cntAll" class="text-3xl font-extrabold text-stone-800">0</div>
+      </div>
+      <div class="stat-card bg-green-50 rounded-2xl p-3 shadow border-2 border-transparent" data-filter="green">
+        <div class="text-xs font-semibold text-green-700">🟢 Safe (1 mahine+)</div>
+        <div id="cntGreen" class="text-3xl font-extrabold text-green-700">0</div>
+      </div>
+      <div class="stat-card bg-yellow-50 rounded-2xl p-3 shadow border-2 border-transparent" data-filter="yellow">
+        <div class="text-xs font-semibold text-yellow-700">🟡 Expiring Soon (≤30 din)</div>
+        <div id="cntYellow" class="text-3xl font-extrabold text-yellow-700">0</div>
+      </div>
+      <div id="redCard" class="stat-card bg-red-50 rounded-2xl p-3 shadow border-2 border-transparent" data-filter="red">
+        <div class="text-xs font-semibold text-red-700">🔴 Expired / Claimable</div>
+        <div id="cntRed" class="text-3xl font-extrabold text-red-700">0</div>
+      </div>
+    </section>
+
+    <!-- SEARCH + FILTER INFO -->
+    <section class="bg-white rounded-2xl shadow p-3 space-y-2">
+      <div class="relative">
+        <span class="absolute left-3 top-2.5 text-stone-400">🔍</span>
+        <input id="searchBox" type="search" placeholder="Naam, Diary Code ya Loan Amount (jaise 10000) se khojein…"
+          class="w-full border border-stone-300 rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500">
+      </div>
+      <div class="flex items-center justify-between text-xs text-stone-500">
+        <div>Dikh raha hai: <b id="filterLabel" class="text-stone-800">Saari Active</b> • <b id="resultCount">0</b> entry</div>
+        <div class="flex gap-3"><button id="redeemedTab" class="underline text-amber-800 font-semibold">✔️ Chuda Liye</button><button id="trashTab" class="underline text-stone-500 font-semibold">🗑️ Recycle Bin</button></div>
+      </div>
+    </section>
+
+    <!-- TABLE -->
+    <section class="bg-white rounded-2xl shadow overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-amber-100 text-amber-900 text-left text-xs">
+            <tr>
+              <th class="px-3 py-2">Code</th>
+              <th class="px-3 py-2">Customer</th>
+              <th class="px-3 py-2 hidden sm:table-cell">Type / Vajan</th>
+              <th class="px-3 py-2 text-right">Loan ₹</th>
+              <th class="px-3 py-2">Expiry</th>
+              <th class="px-3 py-2">Status</th>
+            </tr>
+          </thead>
+          <tbody id="tbody" class="divide-y divide-stone-100"></tbody>
+        </table>
+      </div>
+      <div id="emptyMsg" class="hidden text-center text-stone-400 py-10 text-sm">Koi entry nahi mili.</div>
+      <p class="text-[11px] text-stone-400 text-center py-2">Detail, Redeem ya Recycle Bin ke liye kisi bhi row par tap karein.</p>
+    </section>
+  </main>
+</div>
+
+<!-- ===================== DETAIL / ACTION MODAL ===================== -->
+<div id="detailModal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div class="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 pop max-h-[92vh] overflow-y-auto">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="text-xs text-stone-500">Diary Code</div>
+        <div id="dCode" class="text-2xl font-extrabold text-amber-900"></div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="dStatus" class="text-xs font-bold px-2 py-1 rounded-full"></span>
+        <button id="dClose" class="text-2xl leading-none text-stone-400 px-1">×</button>
+      </div>
+    </div>
+    <dl class="mt-3 text-sm divide-y divide-stone-100" id="dList"></dl>
+
+    <div id="dActions" class="mt-4 space-y-2">
+      <button id="btnRedeem" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg active:scale-95">✅ Chuda Liya (Redeem)</button>
+      <button id="btnReopen" class="hidden w-full bg-amber-600 text-white font-bold py-3 rounded-lg active:scale-95">↩️ Wapas Active Karein</button>
+      <button id="btnRestore" class="hidden w-full bg-blue-600 text-white font-bold py-3 rounded-lg active:scale-95">♻️ Recycle Bin se wapas layein</button>
+      <button id="btnDelete" class="w-full bg-white border-2 border-red-300 text-red-600 font-bold py-2.5 rounded-lg active:scale-95">🗑️ Recycle Bin mein bhejein</button>
+    </div>
+    <div id="dConfirm" class="hidden mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
+      <p id="dConfirmText" class="text-sm text-red-800 font-semibold"></p>
+      <div class="flex gap-2 mt-2">
+        <button id="confirmYes" class="flex-1 bg-red-600 text-white font-bold py-2.5 rounded-lg">Haan, pakka</button>
+        <button id="confirmNo" class="flex-1 bg-stone-200 font-semibold py-2.5 rounded-lg">Nahi</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- toast -->
+<div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] bg-stone-900 text-white text-sm px-4 py-2 rounded-full shadow-lg"></div>
+
+<script>
+window.addEventListener('error', function (ev) {
+  var m = document.getElementById('loginMsg');
+  if (m) { m.textContent = 'Script error: ' + (ev.message || 'unknown'); m.className = 'text-sm font-medium text-red-600'; }
+});
+(function(){
+'use strict';
+/* =====================================================================
+   FIREBASE CONFIG
+   Yahan apna firebaseConfig bhar dein (permanent), ya login screen par
+   "Cloud (Firebase) setup" se paste karein.
+   ===================================================================== */
+const FIREBASE_CONFIG = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "000000000000",
+  appId: "YOUR_APP_ID"
+};
+
+/* ----------------------------- helpers ----------------------------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const mem = {};
+let storageOK = true;
+try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); } catch (_e) { storageOK = false; }
+const lsGet = (k, d=null) => { try { if (storageOK) { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } } catch (_e) {} return (k in mem) ? mem[k] : d; };
+const lsSet = (k, v) => { mem[k] = v; try { if (storageOK) localStorage.setItem(k, JSON.stringify(v)); } catch (_e) {} };
+const fmtINR = n => '₹' + Number(n || 0).toLocaleString('en-IN');
+const pad = n => String(n).padStart(2, '0');
+const toISO = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseISO = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d, 12, 0, 0); };
+const fmtDate = s => { if (!s) return '—'; const d = parseISO(s); return `${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}`; };
+const todayISO = () => toISO(new Date());
+function addYears(iso, yrs) {
+  const d = parseISO(iso);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setFullYear(d.getFullYear() + yrs);
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, last));
+  return toISO(d);
+}
+function daysLeft(expISO) {
+  const t = parseISO(todayISO()), e = parseISO(expISO);
+  return Math.round((e - t) / 86400000);
+}
+function statusOf(entry) {
+  if (entry.status === 'redeemed') return 'redeemed';
+  if (entry.status === 'trashed') return 'trashed';
+  const d = daysLeft(entry.expiry);
+  if (d < 0) return 'red';
+  if (d <= 30) return 'yellow';
+  return 'green';
+}
+let toastTimer;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 2200);
+}
+async function sha256(text) {
+  try {
+    if (window.crypto && crypto.subtle) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    }
+  } catch (_e) {}
+  let h = 5381; for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+  return 'fb' + (h >>> 0).toString(16);
+}
+const shopIdOf = name => name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[\/\.#$\[\]]/g, '') || 'shop';
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+
+/* ----------------------------- firebase ---------------------------- */
+let db = null, cloudReady = false;
+function getConfig() {
+  const saved = lsGet('sgr_fbconfig');
+  const cfg = saved || FIREBASE_CONFIG;
+  if (!cfg || !cfg.projectId || /YOUR_/.test(cfg.projectId) || /YOUR_/.test(cfg.apiKey || '')) return null;
+  return cfg;
+}
+function initFirebase() {
+  cloudReady = false; db = null;
+  const cfg = getConfig();
+  if (!cfg || typeof firebase === 'undefined') { updateLoginBadge(); return; }
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(cfg);
+    db = firebase.firestore();
+    try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (_e) {}
+    cloudReady = true;
+  } catch (e) { console.warn('Firebase init fail', e); db = null; cloudReady = false; }
+  updateLoginBadge();
+}
+function updateLoginBadge() {
+  $('cloudBadgeLogin').innerHTML = cloudReady
+    ? '☁️ <span class="text-green-700 font-semibold">Cloud sync ON</span>'
+    : '📴 <span class="text-orange-700 font-semibold">Sirf is phone mein (Local) — Cloud setup baaki hai</span>';
+}
+
+/* ----------------------------- state ------------------------------- */
+let session = null;           // { shopId, shopName, pinHash }
+let entries = [];
+let unsub = null;
+let activeFilter = 'all';     // all | green | yellow | red | redeemed
+let selectedId = null;
+let pendingConfirm = null;    // 'delete'
+let loginMode = 'login';      // login | register
+
+const dataKey = id => 'sgr_data_' + id;
+const accKey = id => 'sgr_acc_' + id;
+const saveLocal = () => session && lsSet(dataKey(session.shopId), entries);
+
+/* ----------------------------- login ------------------------------- */
+function setLoginMsg(msg, ok=false) {
+  const m = $('loginMsg'); m.textContent = msg || '';
+  m.className = 'text-sm font-medium ' + (msg ? '' : 'hidden ') + (ok ? 'text-green-700' : 'text-red-600');
+}
+$('toggleModeBtn').onclick = () => {
+  loginMode = loginMode === 'login' ? 'register' : 'login';
+  const reg = loginMode === 'register';
+  $('pin2Wrap').classList.toggle('hidden', !reg);
+  $('loginBtn').textContent = reg ? '🆕 Dukan Register Karein' : '🔐 Login';
+  $('toggleModeBtn').textContent = reg ? 'Pehle se account hai? Login karein' : 'Pehli baar? PIN set karke account banayein';
+  setLoginMsg('');
+};
+const submitLogin = async () => {
+  const name = $('shopName').value.trim(), pin = $('shopPin').value;
+  if (!name || pin.length < 4) return setLoginMsg('Dukan ka naam aur kam se kam 4 akshar ka PIN daalein.');
+  if (loginMode === 'register' && pin !== $('shopPin2').value) return setLoginMsg('Dono PIN match nahi kar rahe.');
+  const shopId = shopIdOf(name);
+  const pinHash = await sha256(shopId + '::' + pin);
+  const btn = $('loginBtn'); btn.disabled = true; btn.classList.add('opacity-60');
+  setLoginMsg('Please wait…', true);
+  try {
+    if (loginMode === 'register') await doRegister(name, shopId, pinHash);
+    else await doLogin(name, shopId, pinHash);
+  } catch (err) {
+    setLoginMsg(err.message || 'Kuch galat hua, dobara koshish karein.');
+  } finally { btn.disabled = false; btn.classList.remove('opacity-60'); }
+};
+$('loginBtn').onclick = submitLogin;
+$('loginForm').onsubmit = e => { e.preventDefault(); };
+['shopName','shopPin','shopPin2'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submitLogin(); } }));
+async function doRegister(name, shopId, pinHash) {
+  if (cloudReady) {
+    try {
+      const ref = db.collection('shops').doc(shopId);
+      const snap = await withTimeout(ref.get(), 9000);
+      if (snap.exists) throw new Error('Is naam ki dukan pehle se hai. Login karein ya doosra naam chunein.');
+      await withTimeout(ref.set({ name, pinHash, createdAt: Date.now() }), 9000);
+      lsSet(accKey(shopId), { name, pinHash });
+      return startSession({ shopId, shopName: name, pinHash });
+    } catch (e) {
+      if (e.message && e.message.startsWith('Is naam')) throw e;
+      throw new Error('Cloud se connect nahi ho paya. Internet check karein ya Firestore rules dekhein.');
+    }
+  }
+  if (lsGet(accKey(shopId))) throw new Error('Is naam ki dukan is phone mein pehle se hai.');
+  lsSet(accKey(shopId), { name, pinHash });
+  startSession({ shopId, shopName: name, pinHash });
+}
+async function doLogin(name, shopId, pinHash) {
+  if (cloudReady) {
+    try {
+      const snap = await withTimeout(db.collection('shops').doc(shopId).get(), 9000);
+      if (!snap.exists) throw new Error('NOTFOUND');
+      if (snap.data().pinHash !== pinHash) throw new Error('PIN galat hai.');
+      lsSet(accKey(shopId), { name: snap.data().name || name, pinHash });
+      return startSession({ shopId, shopName: snap.data().name || name, pinHash });
+    } catch (e) {
+      if (e.message === 'PIN galat hai.') throw e;
+      if (e.message === 'NOTFOUND') throw new Error('Is naam ki dukan nahi mili. Naam check karein ya "Pehli baar? PIN set karke account banayein".');
+      // offline fallback below
+      const acc = lsGet(accKey(shopId));
+      if (acc && acc.pinHash === pinHash) { toast('Offline mode mein khul raha hai'); return startSession({ shopId, shopName: acc.name, pinHash }); }
+      throw new Error('Cloud se connect nahi ho paya aur is phone mein purana login bhi nahi hai.');
+    }
+  }
+  const acc = lsGet(accKey(shopId));
+  if (!acc) throw new Error('Is phone mein yeh dukan nahi mili. Cloud setup karke login karein.');
+  if (acc.pinHash !== pinHash) throw new Error('PIN galat hai.');
+  startSession({ shopId, shopName: acc.name, pinHash });
+}
+
+/* ----------------------------- session ----------------------------- */
+function startSession(s) {
+  session = s;
+  lsSet('sgr_session', s);
+  $('loginScreen').classList.add('hidden');
+  $('appScreen').classList.remove('hidden');
+  $('hdrShop').textContent = s.shopName;
+  entries = lsGet(dataKey(s.shopId), []);
+  activeFilter = 'all'; $('searchBox').value = '';
+  $('fDate').value = todayISO(); updateExpPreview();
+  render();
+  subscribeCloud();
+}
+function subscribeCloud() {
+  if (unsub) { unsub(); unsub = null; }
+  if (!cloudReady) { setSync('local'); return; }
+  setSync('connecting');
+  unsub = db.collection('shops').doc(session.shopId).collection('entries').onSnapshot(
+    { includeMetadataChanges: true },
+    snap => {
+      entries = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+      saveLocal(); render();
+      setSync(snap.metadata.hasPendingWrites ? 'pending' : (snap.metadata.fromCache ? 'offline' : 'synced'));
+    },
+    err => { console.warn(err); setSync('error'); }
+  );
+}
+function setSync(state) {
+  const map = {
+    local: '📴 Local mode (cloud off)',
+    connecting: '⏳ Cloud se jud raha hai…',
+    synced: '☁️ Cloud synced ✔',
+    pending: '🔄 Sync ho raha hai…',
+    offline: '📴 Offline — net aane par sync hoga',
+    error: '⚠️ Cloud error — rules/permission check karein'
+  };
+  $('syncBadge').textContent = map[state] || '';
+}
+function logout() {
+  if (unsub) { unsub(); unsub = null; }
+  session = null; entries = [];
+  try { localStorage.removeItem('sgr_session'); } catch (_e) {}
+  $('appScreen').classList.add('hidden');
+  $('loginScreen').classList.remove('hidden');
+  $('shopPin').value = ''; $('shopPin2').value = ''; setLoginMsg('');
+  closeDetail(); $('addPanel').classList.add('hidden');
+}
+let logoutArmed = false;
+$('logoutBtn').onclick = () => {
+  if (!logoutArmed) { logoutArmed = true; $('logoutBtn').textContent = 'Pakka?'; setTimeout(() => { logoutArmed = false; $('logoutBtn').textContent = 'Logout'; }, 3000); return; }
+  logoutArmed = false; $('logoutBtn').textContent = 'Logout'; logout();
+};
+
+/* ----------------------------- cloud ops --------------------------- */
+function colRef() { return db.collection('shops').doc(session.shopId).collection('entries'); }
+async function saveEntry(entry) {
+  if (cloudReady) {
+    // offline persistence queue karta hai, isliye block nahi karte
+    colRef().doc(entry.id).set(entry).catch(e => { console.warn(e); toast('Cloud save error'); });
+    // local state turant update (snapshot bhi aayega)
+    const i = entries.findIndex(x => x.id === entry.id);
+    if (i >= 0) entries[i] = entry; else entries.push(entry);
+  } else {
+    const i = entries.findIndex(x => x.id === entry.id);
+    if (i >= 0) entries[i] = entry; else entries.push(entry);
+  }
+  saveLocal(); render();
+}
+
+/* ----------------------------- add form ---------------------------- */
+$('addToggleBtn').onclick = () => {
+  $('addPanel').classList.toggle('hidden');
+  if (!$('addPanel').classList.contains('hidden')) {
+    $('fDate').value = $('fDate').value || todayISO(); updateExpPreview();
+    $('addPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+};
+$('addCancel').onclick = () => $('addPanel').classList.add('hidden');
+function updateExpPreview() {
+  const d = $('fDate').value, y = parseInt($('fYears').value, 10);
+  $('expPreview').textContent = d ? fmtDate(addYears(d, y)) + ` (${y} saal baad)` : '—';
+}
+$('fDate').oninput = updateExpPreview;
+$('fYears').onchange = updateExpPreview;
+
+function addMsg(msg, ok=false) {
+  const m = $('addMsg'); m.textContent = msg; m.className = 'sm:col-span-2 text-sm font-medium ' + (ok ? 'text-green-700' : 'text-red-600');
+  if (!msg) m.classList.add('hidden');
+}
+const submitAdd = async () => {
+  const name = $('fName').value.trim();
+  const code = $('fCode').value.trim().toUpperCase();
+  const mobile = $('fMobile').value.trim();           // optional
+  const type = document.querySelector('input[name="fType"]:checked').value;
+  const weight = $('fWeight').value.trim();
+  const loan = Number($('fLoan').value);
+  const date = $('fDate').value || todayISO();
+  const years = parseInt($('fYears').value, 10);
+
+  if (!name || !code || !weight || !(loan > 0)) return addMsg('Zaroori fields (naam, code, vajan, loan) bharein.');
+  if (mobile && !/^[0-9+\-\s]{6,15}$/.test(mobile)) return addMsg('Mobile number sahi nahi lag raha (ya khali chhod dein).');
+  if (entries.some(x => (x.code || '').toUpperCase() === code)) return addMsg(`Diary Code "${code}" pehle se maujood hai. Unique code daalein.`);
+
+  const entry = {
+    id: 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name, code, mobile, type, weight, loan, date, years,
+    expiry: addYears(date, years),
+    status: 'active', createdAt: Date.now()
+  };
+  await saveEntry(entry);
+  addMsg('');
+  $('addForm').reset();
+  $('fDate').value = todayISO(); $('fYears').value = '3'; updateExpPreview();
+  $('addPanel').classList.add('hidden');
+  toast('✅ Entry save ho gayi');
+};
+
+$('addSaveBtn').onclick = submitAdd;
+$('addForm').onsubmit = e => { e.preventDefault(); };
+$('addForm').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); submitAdd(); } });
+
+/* ----------------------------- dashboard --------------------------- */
+document.querySelectorAll('.stat-card').forEach(c => c.onclick = () => { activeFilter = c.dataset.filter; render(); });
+$('redeemedTab').onclick = () => { activeFilter = activeFilter === 'redeemed' ? 'all' : 'redeemed'; render(); };
+$('trashTab').onclick = () => { activeFilter = activeFilter === 'trash' ? 'all' : 'trash'; render(); };
+$('searchBox').oninput = () => renderTable();
+
+function render() { renderStats(); renderTable(); }
+function renderStats() {
+  const active = entries.filter(e => e.status !== 'redeemed' && e.status !== 'trashed');
+  const c = { green: 0, yellow: 0, red: 0 };
+  active.forEach(e => c[statusOf(e)]++);
+  $('cntAll').textContent = active.length;
+  $('cntGreen').textContent = c.green;
+  $('cntYellow').textContent = c.yellow;
+  $('cntRed').textContent = c.red;
+  $('redCard').classList.toggle('pulse-red', c.red > 0);
+  const ring = { all: 'border-stone-500', green: 'border-green-500', yellow: 'border-yellow-500', red: 'border-red-500' };
+  document.querySelectorAll('.stat-card').forEach(card => {
+    Object.values(ring).forEach(r => card.classList.remove(r));
+    card.classList.add('border-transparent');
+    if (card.dataset.filter === activeFilter) { card.classList.remove('border-transparent'); card.classList.add(ring[activeFilter]); }
+  });
+  $('redeemedTab').textContent = activeFilter === 'redeemed' ? '← Active par wapas' : '✔️ Chuda Liye';
+  $('trashTab').textContent = activeFilter === 'trash' ? '← Active par wapas' : '🗑️ Recycle Bin';
+}
+const BADGE = {
+  green:  ['🟢 Safe', 'bg-green-100 text-green-800'],
+  yellow: ['🟡 Expiring', 'bg-yellow-100 text-yellow-800'],
+  red:    ['🔴 Expired', 'bg-red-100 text-red-700'],
+  redeemed: ['✔️ Chuda Liya', 'bg-stone-200 text-stone-700'],
+  trashed: ['🗑️ Recycle Bin', 'bg-stone-200 text-stone-600']
+};
+const FLABEL = { all: 'Saari Active', green: 'Green (Safe)', yellow: 'Yellow (Expiring Soon)', red: 'Red (Expired / Claimable)', redeemed: 'Chuda Liye (Redeemed)', trash: 'Recycle Bin' };
+function renderTable() {
+  const q = $('searchBox').value.trim().toLowerCase();
+  let list = entries.filter(e => activeFilter === 'redeemed' ? e.status === 'redeemed' : (activeFilter === 'trash' ? e.status === 'trashed' : (e.status !== 'redeemed' && e.status !== 'trashed')));
+  if (['green', 'yellow', 'red'].includes(activeFilter)) list = list.filter(e => statusOf(e) === activeFilter);
+  if (q) {
+    list = list.filter(e =>
+      (e.name || '').toLowerCase().includes(q) ||
+      (e.code || '').toLowerCase().includes(q) ||
+      String(e.loan).includes(q.replace(/[,₹\s]/g, ''))
+    );
+  }
+  list.sort((a, b) => (a.expiry || '').localeCompare(b.expiry || ''));
+  $('filterLabel').textContent = FLABEL[activeFilter];
+  $('resultCount').textContent = list.length;
+  $('emptyMsg').classList.toggle('hidden', list.length > 0);
+  $('tbody').innerHTML = list.map(e => {
+    const st = statusOf(e), b = BADGE[st];
+    const dl = (e.status === 'redeemed' || e.status === 'trashed') ? '' : (() => { const d = daysLeft(e.expiry); return d < 0 ? `${-d} din pehle` : `${d} din baaki`; })();
+    return `<tr class="row" data-id="${esc(e.id)}">
+      <td class="px-3 py-3 font-bold text-amber-900 whitespace-nowrap">${esc(e.code)}</td>
+      <td class="px-3 py-3"><div class="font-semibold">${esc(e.name)}</div><div class="text-[11px] text-stone-400 sm:hidden">${e.type === 'Sona' ? '🥇' : '🥈'} ${esc(e.weight)}</div></td>
+      <td class="px-3 py-3 hidden sm:table-cell">${e.type === 'Sona' ? '🥇 Sona' : '🥈 Chandi'} • ${esc(e.weight)}</td>
+      <td class="px-3 py-3 text-right font-semibold whitespace-nowrap">${fmtINR(e.loan)}</td>
+      <td class="px-3 py-3 whitespace-nowrap">${fmtDate(e.expiry)}<div class="text-[11px] text-stone-400">${dl}</div></td>
+      <td class="px-3 py-3"><span class="text-[11px] font-bold px-2 py-1 rounded-full whitespace-nowrap ${b[1]}">${b[0]}</span></td>
+    </tr>`;
+  }).join('');
+}
+$('tbody').onclick = e => {
+  const tr = e.target.closest('tr.row'); if (tr) openDetail(tr.dataset.id);
+};
+
+/* ----------------------------- detail modal ------------------------ */
+function openDetail(id) {
+  const e = entries.find(x => x.id === id); if (!e) return;
+  selectedId = id; pendingConfirm = null;
+  const st = statusOf(e), b = BADGE[st];
+  $('dCode').textContent = e.code;
+  $('dStatus').textContent = b[0]; $('dStatus').className = 'text-xs font-bold px-2 py-1 rounded-full ' + b[1];
+  const dl = (e.status === 'redeemed' || e.status === 'trashed') ? '—' : (() => { const d = daysLeft(e.expiry); return d < 0 ? `Expiry ko ${-d} din ho gaye` : `${d} din baaki`; })();
+  const rows = [
+    ['Customer', e.name],
+    ['Mobile', e.mobile ? `<a class="text-blue-700 underline" href="tel:${esc(e.mobile)}">${esc(e.mobile)}</a>` : '<span class="text-stone-400">Nahi diya</span>'],
+    ['Jwellery', (e.type === 'Sona' ? '🥇 Sona (Gold)' : '🥈 Chandi (Silver)')],
+    ['Vajan', esc(e.weight)],
+    ['Loan Amount', `<b>${fmtINR(e.loan)}</b>`],
+    ['Girvi Date', fmtDate(e.date)],
+    ['Period', `${e.years} saal`],
+    ['Expiry Date', `<b>${fmtDate(e.expiry)}</b>`],
+    ['Samay', dl]
+  ];
+  if (e.status === 'redeemed' && e.redeemedAt) rows.push(['Chuda Liya', fmtDate(toISO(new Date(e.redeemedAt)))]);
+  $('dList').innerHTML = rows.map(r => `<div class="flex justify-between gap-3 py-2"><dt class="text-stone-500">${r[0]}</dt><dd class="text-right font-medium">${r[0] === 'Customer' || r[0] === 'Vajan' ? esc(r[1]) : r[1]}</dd></div>`).join('');
+  const redeemed = e.status === 'redeemed', trashed = e.status === 'trashed';
+  $('btnRedeem').classList.toggle('hidden', redeemed || trashed);
+  $('btnReopen').classList.toggle('hidden', !redeemed);
+  $('btnDelete').classList.toggle('hidden', trashed);
+  $('btnRestore').classList.toggle('hidden', !trashed);
+  $('dConfirm').classList.add('hidden'); $('dActions').classList.remove('hidden');
+  $('detailModal').classList.remove('hidden');
+}
+function closeDetail() { $('detailModal').classList.add('hidden'); selectedId = null; pendingConfirm = null; }
+$('dClose').onclick = closeDetail;
+$('detailModal').onclick = e => { if (e.target === $('detailModal')) closeDetail(); };
+
+$('btnRedeem').onclick = async () => {
+  const e = entries.find(x => x.id === selectedId); if (!e) return;
+  await saveEntry(Object.assign({}, e, { status: 'redeemed', redeemedAt: Date.now() }));
+  closeDetail(); toast('✅ Chuda liya mark ho gaya');
+};
+$('btnReopen').onclick = async () => {
+  const e = entries.find(x => x.id === selectedId); if (!e) return;
+  const n = Object.assign({}, e, { status: 'active' }); delete n.redeemedAt;
+  await saveEntry(n);
+  closeDetail(); toast('↩️ Wapas Active ho gaya');
+};
+$('btnRestore').onclick = async () => {
+  const e = entries.find(x => x.id === selectedId); if (!e) return;
+  const n = Object.assign({}, e, { status: e.prevStatus || 'active' }); delete n.prevStatus; delete n.trashedAt;
+  await saveEntry(n); closeDetail(); toast('♻️ Entry wapas aa gayi');
+};
+$('btnDelete').onclick = () => {
+  const e = entries.find(x => x.id === selectedId); if (!e) return;
+  pendingConfirm = 'delete';
+  $('dConfirmText').textContent = `"${e.code} – ${e.name}" ko Recycle Bin mein bhejein? Entry mitegi nahi, wahan se wapas la sakte hain.`;
+  $('dActions').classList.add('hidden'); $('dConfirm').classList.remove('hidden');
+};
+$('confirmNo').onclick = () => { pendingConfirm = null; $('dConfirm').classList.add('hidden'); $('dActions').classList.remove('hidden'); };
+$('confirmYes').onclick = async () => {
+  if (pendingConfirm === 'delete' && selectedId) {
+    const e = entries.find(x => x.id === selectedId);
+    if (e) await saveEntry(Object.assign({}, e, { prevStatus: e.status || 'active', status: 'trashed', trashedAt: Date.now() }));
+    closeDetail(); toast('🗑️ Recycle Bin mein bhej di');
+  }
+};
+
+/* ----------------------------- firebase setup modal ---------------- */
+$('openCfgBtn').onclick = () => {
+  const c = lsGet('sgr_fbconfig'); $('cfgText').value = c ? JSON.stringify(c, null, 2) : '';
+  $('cfgMsg').classList.add('hidden'); $('cfgModal').classList.remove('hidden');
+};
+$('cfgClose').onclick = () => $('cfgModal').classList.add('hidden');
+$('cfgClear').onclick = () => { try { localStorage.removeItem('sgr_fbconfig'); } catch (_e) {} $('cfgText').value = ''; toast('Config hata di'); };
+function parseLooseConfig(txt) {
+  txt = txt.trim().replace(/^(const|let|var)\s+\w+\s*=\s*/, '').replace(/;\s*$/, '');
+  try { return JSON.parse(txt); } catch (_e) {}
+  const fixed = txt.replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":').replace(/'/g, '"').replace(/,\s*}/g, '}');
+  return JSON.parse(fixed);
+}
+$('cfgSave').onclick = () => {
+  const m = $('cfgMsg');
+  try {
+    const cfg = parseLooseConfig($('cfgText').value);
+    if (!cfg.apiKey || !cfg.projectId) throw new Error('apiKey / projectId missing');
+    lsSet('sgr_fbconfig', cfg);
+    m.textContent = 'Save ho gaya! Page reload ho raha hai…'; m.className = 'text-sm mt-1 text-green-700';
+    setTimeout(() => location.reload(), 700);
+  } catch (e) {
+    m.textContent = 'Config padh nahi paya: ' + e.message; m.className = 'text-sm mt-1 text-red-600';
+  }
+};
+
+/* ----------------------------- backup (CSV) ------------------------ */
+function csvCell(v) {
+  let t = String(v == null ? '' : v);
+  if (/^[=+\-@]/.test(t)) t = "'" + t;
+  return '"' + t.replace(/"/g, '""') + '"';
+}
+$('backupBtn').onclick = () => {
+  const head = ['Diary Code','Customer','Mobile','Jwellery','Vajan','Loan (Rs)','Girvi Date','Saal','Expiry Date','Status'];
+  const stName = { active: 'Active', redeemed: 'Chuda Liya', trashed: 'Recycle Bin' };
+  const rows = entries.slice().sort((a, b) => (a.code || '').localeCompare(b.code || '')).map(e =>
+    [e.code, e.name, e.mobile, e.type, e.weight, e.loan, e.date, e.years, e.expiry, stName[e.status] || 'Active'].map(csvCell).join(','));
+  const csv = '\uFEFF' + [head.map(csvCell).join(',')].concat(rows).join('\r\n');
+  try {
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'girvi-backup-' + todayISO() + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('⬇️ Backup download ho raha hai (' + entries.length + ' entry)');
+  } catch (_e) { toast('Download nahi hua — file ko Chrome mein kholein'); }
+};
+
+$('cfgBtnHdr').onclick = () => $('openCfgBtn').onclick();
+
+/* ----------------------------- boot -------------------------------- */
+window.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDetail(); $('cfgModal').classList.add('hidden'); } });
+(function boot() {
+  initFirebase();
+  const FIXED_SHOP = 'Shree Hari Jwellers';
+  startSession({ shopId: shopIdOf(FIXED_SHOP), shopName: FIXED_SHOP, pinHash: '' });
+  if (!cloudReady) $('cloudWarn').classList.remove('hidden');
+  if (!storageOK) { $('cloudWarn').classList.remove('hidden'); $('cloudWarn').innerHTML += ' <br>⚠️ Is preview mein storage band hai — poore use ke liye file ko Chrome mein kholein.'; }
+})();
+
+})();
+</script>
+</body>
+</html>
