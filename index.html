@@ -591,6 +591,10 @@ function renderStats() {
   $('cntGreen').textContent = c.green;
   $('cntYellow').textContent = c.yellow;
   $('cntRed').textContent = c.red;
+  const activeLoanSum = active.reduce((sum, item) => sum + (Number(item.loan) || 0), 0);
+if ($('activeLoanTotal')) $('activeLoanTotal').textContent = typeof fmtINR === 'function' ? fmtINR(activeLoanSum) : `₹${activeLoanSum.toLocaleString('en-IN')}`;
+if ($('activeLoanCount')) $('activeLoanCount').textContent = `${active.length} log`;
+  
   $('redCard').classList.toggle('pulse-red', c.red > 0);
   const ring = { all: 'border-stone-500', green: 'border-green-500', yellow: 'border-yellow-500', red: 'border-red-500' };
   document.querySelectorAll('.stat-card').forEach(card => {
