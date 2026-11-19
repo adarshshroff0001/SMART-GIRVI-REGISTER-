@@ -221,6 +221,7 @@
               <th class="px-3 py-2 hidden sm:table-cell">Type / Vajan</th>
               <th class="px-3 py-2 text-right">Loan ₹</th>
               <th class="px-3 py-2">Expiry</th>
+              <th class="px-3 py-2 text-right">Mahine / Byaj</th>
               <th class="px-3 py-2">Status</th>
             </tr>
           </thead>
@@ -637,10 +638,34 @@ function renderTable() {
       <td class="px-3 py-3 hidden sm:table-cell">${e.type === 'Sona' ? '🥇 Sona' : '🥈 Chandi'} • ${esc(e.weight)}</td>
       <td class="px-3 py-3 text-right font-semibold whitespace-nowrap">${fmtINR(e.loan)}</td>
       <td class="px-3 py-3 whitespace-nowrap">${fmtDate(e.expiry)}<div class="text-[11px] text-stone-400">${dl}</div></td>
+      ${(() => {
+  const mi = calcMonthInterest(e);
+  const intText = typeof fmtINR === 'function' ? fmtINR(mi.interest) : `₹${mi.interest.toLocaleString('en-IN')}`;
+  return `<td class="px-3 py-3 text-right whitespace-nowrap"><div class="font-bold text-amber-900">${mi.months} mahine</div><div class="text-[11px] text-stone-600">${intText}</div></td>`;
+})()}
+
       <td class="px-3 py-3"><span class="text-[11px] font-bold px-2 py-1 rounded-full whitespace-nowrap ${b[1]}">${b[0]}</span></td>
     </tr>`;
   }).join('');
 }
+  function calcMonthInterest(entry) {
+  const baseStr = entry.date || entry.startDate || entry.createdAt;
+  const now = new Date();
+  let months = 1;
+
+  if (baseStr) {
+    const d = new Date(baseStr);
+    if (!isNaN(d.getTime())) {
+      months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth()) + 1;
+      if (months < 1) months = 1;
+    }
+  }
+
+  const loan = Number(entry.loan) || 0;
+  const interest = Math.round(loan * 0.03 * months);
+  return { months, interest };
+  }
+  
 $('tbody').onclick = e => {
   const tr = e.target.closest('tr.row'); if (tr) openDetail(tr.dataset.id);
 };
